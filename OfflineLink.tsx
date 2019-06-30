@@ -128,7 +128,6 @@ export default class OfflineLink extends ApolloLink {
 
       const subscription = forward(operation).subscribe({
         next: result => {
-          debugger;
           // Mutation was successful so we remove it from the queue since we don't need to retry it later
           if (!queueItemKey) {
             attemptId.then(id => {
@@ -155,7 +154,6 @@ export default class OfflineLink extends ApolloLink {
           }
         },
         error: async err => {
-          debugger;
           switch (err.statusCode) {
             case 400:
               if (!queueItemKey) {
@@ -370,7 +368,6 @@ export default class OfflineLink extends ApolloLink {
         return true;
       });
     } else {
-      debugger;
       Array.from(this.queue).forEach(async ([attemptId, attempt]) => {
         const keyFiles = attempt.files;
         if (keyFiles) {
