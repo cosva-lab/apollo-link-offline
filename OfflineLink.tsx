@@ -55,8 +55,13 @@ export default class OfflineLink extends ApolloLink {
   private actions: any;
   private retryOnServerError: boolean;
   private queue = new Map();
+  private queueFiles: Map<string, FilesSaved[]> = new Map();
   private delayedSync: (() => void) & Cancelable;
   private client!: ApolloClient<NormalizedCacheObject>;
+
+  // Retry mutations in parallel
+  private queueMutate = new SequentialTaskQueue();
+
   /**
    * storage
    * Provider that will persist the mutation queue. This can be AsyncStorage, window.localStorage, et.
@@ -98,7 +103,10 @@ export default class OfflineLink extends ApolloLink {
     operation: Operation,
     forward: NextLink,
   ): Observable<any> {
-    const { optimisticResponse } = operation.getContext();
+    const {
+      optimisticResponse,
+      queueItemKey,
+    } = operation.getContext();
 
     const { query, variables } = operation;
     hasPersistDirective(query);
@@ -109,18 +117,30 @@ export default class OfflineLink extends ApolloLink {
     }
 
     return new Observable(observer => {
-      const attemptId = this.add({
-        mutation: printer(query),
-        variables,
-        optimisticResponse,
-      });
+      let attemptId: Promise<string>;
+      if (!queueItemKey) {
+        attemptId = this.add({
+          mutation: printer(query),
+          variables,
+          optimisticResponse,
+        });
+      }
 
       const subscription = forward(operation).subscribe({
         next: result => {
+          debugger;
           // Mutation was successful so we remove it from the queue since we don't need to retry it later
-          attemptId.then(id => {
-            this.remove(id);
-          });
+          if (!queueItemKey) {
+            attemptId.then(id => {
+              this.remove(id).then(() => {
+                this.delayedSync();
+              });
+            });
+          } else {
+            this.remove(queueItemKey).then(() => {
+              this.delayedSync();
+            });
+          }
           if (!(result.errors || []).length) {
             const { onSync } = optimisticResponse;
             if (onSync) {
@@ -135,16 +155,29 @@ export default class OfflineLink extends ApolloLink {
           }
         },
         error: async err => {
+          debugger;
           switch (err.statusCode) {
             case 400:
-              attemptId.then(id => {
-                this.remove(id);
-              });
+              if (!queueItemKey) {
+                attemptId.then(id => {
+                  this.remove(id);
+                });
+              } else {
+                this.remove(queueItemKey).then(() => {
+                  this.delayedSync();
+                });
+              }
               observer.error(err);
               break;
             default:
               // Mutation failed so we try again after a certain amount of time.
-              this.delayedSync();
+              if (!queueItemKey) {
+                attemptId.then(() => {
+                  this.delayedSync();
+                });
+              } else {
+                this.delayedSync();
+              }
               // Resolve the mutation with the optimistic response so the UI can be updated
               observer.next({
                 data: optimisticResponse,
@@ -186,14 +219,23 @@ export default class OfflineLink extends ApolloLink {
   /**
    * Persist the queue so mutations can be retried at a later point in time.
    */
-  public saveQueueFiles(key: string, files: FilesSaved[]): void {
-    const mapfiles = new Map();
-    mapfiles.set(key, files);
-    this.storage.setItem(
-      OFFLINE_LINK_FILES,
-      JSON.stringify(Array.from(mapfiles)),
-    );
+  public async saveQueue() {
     this.updateStatus(false);
+    return this.storage.setItem(
+      this.storeKey,
+      JSON.stringify(Array.from(this.queue)),
+    );
+  }
+
+  /**
+   * Persist the queue so mutations can be retried at a later point in time.
+   */
+  public async saveQueueFiles() {
+    this.updateStatus(false);
+    return this.storage.setItem(
+      OFFLINE_LINK_FILES,
+      JSON.stringify(Array.from(this.queueFiles)),
+    );
   }
 
   public getQueueFiles(): Promise<Map<string, FilesSaved[]>> {
@@ -202,16 +244,6 @@ export default class OfflineLink extends ApolloLink {
       .then(
         (stored: string) => new Map(JSON.parse(stored)) || new Map(),
       );
-  }
-  /**
-   * Persist the queue so mutations can be retried at a later point in time.
-   */
-  public saveQueue(): void {
-    this.storage.setItem(
-      this.storeKey,
-      JSON.stringify(Array.from(this.queue)),
-    );
-    this.updateStatus(false);
   }
 
   /**
@@ -240,6 +272,7 @@ export default class OfflineLink extends ApolloLink {
     const { files } = extractFiles(item);
     if (!files.size) {
       return new Promise(resolve => {
+        this.queue.set(attemptId, item);
         resolve(attemptId);
       });
     }
@@ -265,11 +298,14 @@ export default class OfflineLink extends ApolloLink {
           resolveFiles(res);
         });
       }).then(res => {
-        set(item, 'files', true);
+        set(item, 'files', attemptId);
         this.queue.set(attemptId, item);
-        this.saveQueueFiles(attemptId, res);
-        this.saveQueue();
-        resolve(attemptId);
+        this.queueFiles.set(attemptId, res);
+        Promise.all([this.saveQueueFiles(), this.saveQueue()]).then(
+          () => {
+            resolve(attemptId);
+          },
+        );
       });
     });
     // We give the mutation attempt a random id so that it is easy to remove when needed (in sync loop)
@@ -278,10 +314,11 @@ export default class OfflineLink extends ApolloLink {
   /**
    * Remove a mutation attempt from the queue.
    */
-  remove(attemptId: string): void {
+  async remove(attemptId: string) {
+    this.queueFiles.delete(attemptId);
     this.queue.delete(attemptId);
-
-    this.saveQueue();
+    await this.saveQueueFiles();
+    return this.saveQueue();
   }
 
   /**
@@ -296,10 +333,6 @@ export default class OfflineLink extends ApolloLink {
     // Update the status to be "in progress"
     this.updateStatus(true);
 
-    const queueFiles: Map<
-      string,
-      FilesSaved[]
-    > = await this.getQueueFiles();
     // Retry the mutations in the queue, the successful ones are removed from the queue
     if (this.sequential) {
       // Retry the mutations in the order in which they were originally executed
@@ -337,14 +370,13 @@ export default class OfflineLink extends ApolloLink {
         return true;
       });
     } else {
-      // Retry mutations in parallel
-      const queue = new SequentialTaskQueue();
-
+      debugger;
       Array.from(this.queue).forEach(async ([attemptId, attempt]) => {
-        if (attempt.files) {
+        const keyFiles = attempt.files;
+        if (keyFiles) {
           const { files } = extractFiles(attempt);
           if (!files.size) {
-            const mapFiles = queueFiles.get(attemptId);
+            const mapFiles = this.queueFiles.get(keyFiles);
             if (mapFiles) {
               mapFiles.forEach(({ key, result, name }) => {
                 b64toBlob(result, name);
@@ -352,43 +384,42 @@ export default class OfflineLink extends ApolloLink {
               });
             }
           }
-          console.log(attempt);
           unset(attempt, 'files');
         }
-        queue.push(() =>
-          this.client
-            .mutate({
-              ...attempt,
-              mutation: gql(attempt.mutation),
-            })
-            // Mutation was successfully executed so we remove it from the queue
-            .then(() => {
-              this.queue.delete(attemptId);
-              // Remaining mutations in the queue are persisted
-              this.saveQueue();
-            })
-            .catch(err => {
-              // There are GraphQL errors, which means the server processed the request so we can remove the mutation from the queue
-              if (
-                this.retryOnServerError === false &&
-                ((err.networkError || {}).response ||
-                  (err.networkError || {}).errors)
-              ) {
-                this.queue.delete(attemptId);
-              }
-              // Remaining mutations in the queue are persisted
-              this.saveQueue();
-            }),
-        );
+        this.queueMutate.push(() => {
+          return new Promise((resolve, reject) => {
+            this.client
+              .mutate({
+                ...attempt,
+                context: { queueItemKey: attemptId },
+                mutation: gql(attempt.mutation),
+              })
+              // Mutation was successfully executed so we remove it from the queue
+              .then(resolve)
+              .catch(err => {
+                // There are GraphQL errors, which means the server processed the request so we can remove the mutation from the queue
+                this.queueMutate.cancel();
+                if (
+                  (err.networkError || {}).response ||
+                  (err.networkError || {}).errors
+                ) {
+                  if (keyFiles) this.queueFiles.delete(keyFiles);
+                  this.queue.delete(attemptId);
+                }
+                // Remaining mutations in the queue are persisted
+                this.saveQueue().then(() => {
+                  reject(err);
+                });
+              });
+          });
+        });
       });
-      queue.wait().then(res => {
-        console.log(res);
+      this.queueMutate.wait().then(() => {
+        if (this.queue.size > 0) {
+          // If there are any mutations left in the queue, we retry them at a later point in time
+          this.delayedSync();
+        }
       });
-    }
-
-    if (this.queue.size > 0) {
-      // If there are any mutations left in the queue, we retry them at a later point in time
-      this.delayedSync();
     }
   }
 
@@ -398,6 +429,7 @@ export default class OfflineLink extends ApolloLink {
   public async setup(client: ApolloClient<NormalizedCacheObject>) {
     this.client = client;
     this.queue = await this.getQueue();
+    this.queueFiles = await this.getQueueFiles();
 
     return this.sync();
   }
