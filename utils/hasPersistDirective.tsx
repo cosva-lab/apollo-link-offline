@@ -1,14 +1,52 @@
-import { visit, BREAK, ASTNode } from 'graphql';
-export const hasPersistDirective = (doc: ASTNode) => {
+import { DocumentNode, DirectiveNode } from 'graphql';
+import { invariant } from 'ts-invariant';
+import {
+  removeDirectivesFromDocument,
+  checkDocument,
+  RemoveNodeConfig,
+} from 'apollo-utilities';
+
+export const hasPersistDirective = (doc: DocumentNode) => {
   let hasDirective = false;
-  visit(doc, {
-    Directive: ({ name: { value: name } }) => {
-      debugger;
-      if (name === 'persist') {
+  let onSync = '';
+  const offlineRemoveConfig: RemoveNodeConfig<DirectiveNode> = {
+    remove: true,
+    test: directive => {
+      const willRemove = directive.name.value === 'offline';
+      if (willRemove) {
         hasDirective = true;
-        return BREAK;
+        if (
+          directive.arguments &&
+          !directive.arguments.some((arg: any) => {
+            const existsDirective = arg.name.value === 'onSync';
+            if (existsDirective && arg!.value) {
+              onSync = arg.value!.value;
+            }
+            return existsDirective;
+          })
+        ) {
+          invariant.warn(
+            'Removing an @offline directive even though it does not have onSync. ' +
+              'You may want to use the key parameter to specify a store key.',
+          );
+        }
       }
+      return willRemove;
     },
-  });
-  return hasDirective;
+  };
+
+  const newDoc = removeDirectivesFromDocument(
+    [offlineRemoveConfig],
+    checkDocument(doc),
+  );
+
+  if (hasDirective && !onSync) {
+    console.error('Error @offline requiere onSync');
+  }
+
+  return {
+    onSync,
+    hasDirective,
+    newDoc,
+  };
 };

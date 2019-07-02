@@ -108,8 +108,14 @@ export default class OfflineLink extends ApolloLink {
       queueItemKey,
     } = operation.getContext();
 
-    const { query, variables } = operation;
-    hasPersistDirective(query);
+    const { variables } = operation;
+    let { query } = operation;
+    const result = hasPersistDirective(query);
+    const { onSync } = result;
+
+    if (result.hasDirective && result.newDoc) {
+      operation.query = result.newDoc;
+    }
 
     if (!optimisticResponse) {
       // If the mutation does not have an optimistic response then we don't defer it
@@ -141,8 +147,7 @@ export default class OfflineLink extends ApolloLink {
             });
           }
           if (!(result.errors || []).length) {
-            const { onSync } = optimisticResponse;
-            if (onSync) {
+            if (onSync && queueItemKey) {
               const action = this.actions[onSync];
               if (typeof action === 'function') {
                 action(operation.getContext(), result);
