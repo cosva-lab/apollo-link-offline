@@ -4,13 +4,14 @@ import {
   Operation,
   NextLink,
 } from 'apollo-link';
-import debounce from 'lodash/debounce';
 import uuidv4 from 'uuid/v4';
 import { print as printer } from 'graphql/language/printer';
 import gql from 'graphql-tag';
 import ApolloClient from 'apollo-client';
 import { NormalizedCacheObject } from 'apollo-cache-inmemory';
-import { Cancelable, set, unset } from 'lodash';
+import debounce from 'lodash/debounce';
+import unset from 'lodash/unset';
+import set from 'lodash/set';
 import {
   SequentialTaskQueue,
   extractFiles,
@@ -56,7 +57,7 @@ export default class OfflineLink extends ApolloLink {
   private retryOnServerError: boolean;
   private queue = new Map();
   private queueFiles: Map<string, FilesSaved[]> = new Map();
-  private delayedSync: (() => void) & Cancelable;
+  private delayedSync: ReturnType<typeof debounce>;
   private client!: ApolloClient<NormalizedCacheObject>;
 
   // Retry mutations in parallel
