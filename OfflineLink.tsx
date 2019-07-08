@@ -124,7 +124,7 @@ export default class OfflineLink extends ApolloLink {
     }
 
     return new Observable(observer => {
-      let attemptId: Promise<string>;
+      let attemptId: string;
       if (!queueItemKey) {
         attemptId = this.add({
           mutation: printer(query),
@@ -137,10 +137,8 @@ export default class OfflineLink extends ApolloLink {
         next: result => {
           // Mutation was successful so we remove it from the queue since we don't need to retry it later
           if (!queueItemKey) {
-            attemptId.then(id => {
-              this.remove(id).then(() => {
-                this.delayedSync();
-              });
+            this.remove(attemptId).then(() => {
+              this.delayedSync();
             });
           } else {
             this.remove(queueItemKey).then(() => {
@@ -163,9 +161,7 @@ export default class OfflineLink extends ApolloLink {
           switch (err.statusCode) {
             case 400:
               if (!queueItemKey) {
-                attemptId.then(id => {
-                  this.remove(id);
-                });
+                this.remove(attemptId);
               } else {
                 this.remove(queueItemKey).then(() => {
                   this.delayedSync();
@@ -176,7 +172,10 @@ export default class OfflineLink extends ApolloLink {
             default:
               // Mutation failed so we try again after a certain amount of time.
               if (!queueItemKey) {
-                attemptId.then(() => {
+                Promise.all([
+                  this.saveQueueFiles(),
+                  this.saveQueue(),
+                ]).then(() => {
                   this.delayedSync();
                 });
               } else {
@@ -267,61 +266,56 @@ export default class OfflineLink extends ApolloLink {
   /**
    * Add a mutation attempt to the queue so that it can be retried at a later point in time.
    */
-  async add(item: {
+  add(item: {
     mutation: string;
     variables: any;
     optimisticResponse: any;
-  }): Promise<string> {
+  }): string {
     const attemptId = uuidv4();
     const { files } = extractFiles(item);
-    if (!files.size) {
-      return new Promise(resolve => {
-        this.queue.set(attemptId, item);
-        resolve(attemptId);
+    this.queue.set(attemptId, item);
+    if (files.size) {
+      // We give the mutation attempt a random id so that it is easy to remove when needed (in sync loop)
+      new Promise((resolve, _reject) => {
+        new Promise<FilesSaved[]>(resolveFiles => {
+          const promises: Promise<any>[] = [];
+          files.forEach(async (value, key) => {
+            promises.push(
+              new Promise(r => {
+                const fr = new FileReader();
+                fr.onload = () => {
+                  return r({
+                    key,
+                    name: value.name,
+                    result: fr.result,
+                  });
+                }; // CHANGE to whatever function you want which would eventually call resolve
+                fr.readAsDataURL(value);
+              }),
+            );
+          });
+          Promise.all(promises).then(res => {
+            resolveFiles(res);
+          });
+        }).then(res => {
+          set(item, 'files', attemptId);
+          this.queueFiles.set(attemptId, res);
+        });
       });
     }
-    return new Promise((resolve, _reject) => {
-      new Promise<FilesSaved[]>(resolveFiles => {
-        const promises: Promise<any>[] = [];
-        files.forEach(async (value, key) => {
-          promises.push(
-            new Promise(r => {
-              const fr = new FileReader();
-              fr.onload = () => {
-                return r({
-                  key,
-                  name: value.name,
-                  result: fr.result,
-                });
-              }; // CHANGE to whatever function you want which would eventually call resolve
-              fr.readAsDataURL(value);
-            }),
-          );
-        });
-        Promise.all(promises).then(res => {
-          resolveFiles(res);
-        });
-      }).then(res => {
-        set(item, 'files', attemptId);
-        this.queue.set(attemptId, item);
-        this.queueFiles.set(attemptId, res);
-        Promise.all([this.saveQueueFiles(), this.saveQueue()]).then(
-          () => {
-            resolve(attemptId);
-          },
-        );
-      });
-    });
-    // We give the mutation attempt a random id so that it is easy to remove when needed (in sync loop)
+    this.queue.set(attemptId, item);
+    return attemptId;
   }
 
   /**
    * Remove a mutation attempt from the queue.
    */
   async remove(attemptId: string) {
-    this.queueFiles.delete(attemptId);
+    if (this.queueFiles.has(attemptId)) {
+      this.queueFiles.delete(attemptId);
+      await this.saveQueueFiles();
+    }
     this.queue.delete(attemptId);
-    await this.saveQueueFiles();
     return this.saveQueue();
   }
 
