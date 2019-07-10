@@ -152,10 +152,8 @@ export default class OfflineLink extends ApolloLink {
                 action(operation.getContext(), result);
               }
             }
-            observer.next(result);
-          } else {
-            observer.error(result);
           }
+          observer.next(result);
         },
         error: async err => {
           switch (err.statusCode) {
