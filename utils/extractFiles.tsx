@@ -11,7 +11,7 @@ export const extractFiles = (
    * Adds a file to the extracted files map.
    * @kind function
    * @name extractFiles~addFile
-   * @param {ObjectPath[]} paths File object paths.
+   * @param {ObjectPath[]} path File object paths.
    * @param {ExtractableFile} file Extracted file.
    * @ignore
    */

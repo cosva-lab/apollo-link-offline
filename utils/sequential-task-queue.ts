@@ -79,7 +79,7 @@ export interface CancellationToken {
  * to one of these values when cancelling a task for a reason other than the user code calling
  * {@link CancellationToken.cancel}.
  */
-export var cancellationTokenReasons = {
+export const cancellationTokenReasons = {
   /** Used when the task was cancelled in response to a call to {@link SequentialTaskQueue.cancel} */
   cancel: Object.create(null),
   /** Used when the task was cancelled after its timeout has passed */
@@ -89,14 +89,14 @@ export var cancellationTokenReasons = {
 /**
  * Standard event names used by {@link SequentialTaskQueue}
  */
-export var sequentialTaskQueueEvents = {
+export const sequentialTaskQueueEvents = {
   drained: 'drained',
   error: 'error',
   timeout: 'timeout',
 };
 
 /**
- * Promise interface with the ability to cancel.
+ * Promise interface  with the ability to cancel.
  */
 export interface CancellablePromiseLike<T> extends PromiseLike<T> {
   /**
@@ -110,19 +110,27 @@ export interface CancellablePromiseLike<T> extends PromiseLike<T> {
  * FIFO task queue to run tasks in predictable order, without concurrency.
  */
 export class SequentialTaskQueue {
-  static defaultScheduler: Scheduler = {
-    schedule: callback => setTimeout(callback, 0),
+  public static defaultScheduler: Scheduler = {
+    schedule: (callback): void => {
+      setTimeout(callback, 0);
+    },
   };
 
   private queue: TaskEntry[] = [];
+
   private _isClosed: boolean = false;
+
   private waiters: Function[] = [];
+
   private defaultTimeout?: number;
+
   private currentTask?: TaskEntry;
+
   private scheduler: Scheduler;
+
   private events?: { [key: string]: Function[] };
 
-  name: string;
+  private name: string;
 
   /** Indicates if the queue has been closed. Calling {@link SequentialTaskQueue.push} on a closed queue will result in an exception. */
   get isClosed() {
@@ -145,7 +153,7 @@ export class SequentialTaskQueue {
    * Adds a new task to the queue.
    * @param {Function} task - The function to call when the task is run
    * @param {TaskOptions} options - An object containing arguments and options for the task.
-   * @returns {CancellablePromiseLike<any>} A promise that can be used to await or cancel the task.
+   * @return {CancellablePromiseLike<any>} A promise that can be used to await or cancel the task.
    */
   push(
     task: Function,
@@ -174,7 +182,7 @@ export class SequentialTaskQueue {
     taskEntry.args.push(taskEntry.cancellationToken);
     this.queue.push(taskEntry);
     this.scheduler.schedule(() => this.next());
-    var result = (new Promise((resolve, reject) => {
+    const result = (new Promise((resolve, reject) => {
       taskEntry.resolve = resolve;
       taskEntry.reject = reject;
     }) as any) as CancellablePromiseLike<any>;
@@ -185,7 +193,7 @@ export class SequentialTaskQueue {
 
   /**
    * Cancels the currently running task (if any), and clears the queue.
-   * @returns {Promise} A Promise that is fulfilled when the queue is empty and the current task has been cancelled.
+   * @return {Promise} A Promise that is fulfilled when the queue is empty and the current task has been cancelled.
    */
   cancel(): PromiseLike<any> {
     if (this.currentTask)
@@ -193,7 +201,7 @@ export class SequentialTaskQueue {
         this.currentTask,
         cancellationTokenReasons.cancel,
       );
-    var queue = this.queue.splice(0);
+    const queue = this.queue.splice(0);
     // Cancel all and emit a drained event if there were tasks waiting in the queue
     if (queue.length) {
       queue.forEach(task =>
@@ -208,7 +216,7 @@ export class SequentialTaskQueue {
    * Closes the queue, preventing new tasks to be added.
    * Any calls to {@link SequentialTaskQueue.push} after closing the queue will result in an exception.
    * @param {boolean} cancel - Indicates that the queue should also be cancelled.
-   * @returns {Promise} A Promise that is fulfilled when the queue has finished executing remaining tasks.
+   * @return {Promise} A Promise that is fulfilled when the queue has finished executing remaining tasks.
    */
   close(cancel?: boolean): PromiseLike<any> {
     if (!this._isClosed) {
@@ -220,7 +228,7 @@ export class SequentialTaskQueue {
 
   /**
    * Returns a promise that is fulfilled when the queue is empty.
-   * @returns {Promise}
+   * @return {Promise}
    */
   wait(): PromiseLike<any> {
     if (!this.currentTask && this.queue.length === 0)
@@ -260,9 +268,9 @@ export class SequentialTaskQueue {
    */
   removeListener(evt: string, handler: Function) {
     if (this.events) {
-      var list = this.events[evt];
+      const list = this.events[evt];
       if (list) {
-        var i = 0;
+        let i = 0;
         while (i < list.length) {
           if (list[i] === handler) list.splice(i, 1);
           else i++;
@@ -291,7 +299,7 @@ export class SequentialTaskQueue {
   protected next() {
     // Try running the next task, if not currently running one
     if (!this.currentTask) {
-      var task = this.queue.shift();
+      let task = this.queue.shift();
       // skip cancelled tasks
       while (task && task.cancellationToken.cancelled)
         task = this.queue.shift();
@@ -308,7 +316,7 @@ export class SequentialTaskQueue {
                 );
             }, task.timeout);
           }
-          let res = task.callback.apply(undefined, task.args);
+          const res = task.callback.apply(undefined, task.args);
           if (res && isPromise(res)) {
             res.then(
               result => {
@@ -363,7 +371,7 @@ export class SequentialTaskQueue {
   }
 
   private callWaiters() {
-    let waiters = this.waiters.splice(0);
+    const waiters = this.waiters.splice(0);
     waiters.forEach(waiter => waiter());
   }
 }

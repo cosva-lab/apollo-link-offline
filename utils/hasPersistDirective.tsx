@@ -19,8 +19,8 @@ export const hasPersistDirective = (doc: DocumentNode) => {
           directive.arguments &&
           !directive.arguments.some((arg: any) => {
             const existsDirective = arg.name.value === 'onSync';
-            if (existsDirective && arg!.value) {
-              onSync = arg.value!.value;
+            if (existsDirective && arg.value) {
+              onSync = arg.value.value;
             }
             return existsDirective;
           })

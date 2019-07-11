@@ -32,11 +32,11 @@ interface PersistentStorage<T> {
   removeItem: (key: string) => Promise<void> | void;
 }
 
-declare type FilesSaved = {
+interface FilesSaved {
   key: string;
   result: string;
   name: string;
-};
+}
 
 interface Props {
   storage: PersistentStorage<any>;
@@ -51,13 +51,21 @@ const OFFLINE_LINK_FILES = '@offlineLink/files';
 
 export default class OfflineLink extends ApolloLink {
   private storage: PersistentStorage<any>;
+
   private storeKey: string;
+
   private sequential: boolean;
+
   private actions: any;
+
   private retryOnServerError: boolean;
+
   private queue = new Map();
+
   private queueFiles: Map<string, FilesSaved[]> = new Map();
+
   private delayedSync: ReturnType<typeof debounce>;
+
   private client!: ApolloClient<NormalizedCacheObject>;
 
   // Retry mutations in parallel
@@ -110,7 +118,7 @@ export default class OfflineLink extends ApolloLink {
     } = operation.getContext();
 
     const { variables } = operation;
-    let { query } = operation;
+    const { query } = operation;
     const result = hasPersistDirective(query);
     const { onSync } = result;
 
