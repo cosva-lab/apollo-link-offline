@@ -106,6 +106,12 @@ export interface CancellablePromiseLike<T> extends PromiseLike<T> {
   cancel(reason?: any): void;
 }
 
+function isPromise(obj: any): obj is PromiseLike<any> {
+  return obj && typeof obj.then === 'function';
+}
+
+function noop() {}
+
 /**
  * FIFO task queue to run tasks in predictable order, without concurrency.
  */
@@ -139,7 +145,7 @@ export class SequentialTaskQueue {
 
   /**
    * Creates a new instance of {@link SequentialTaskQueue}
-   * @param options - Configuration options for the task queue.
+   * @param {SequentialTaskQueueOptions} options - Configuration options for the task queue.
    */
   constructor(options?: SequentialTaskQueueOptions) {
     if (!options) options = {};
@@ -161,7 +167,7 @@ export class SequentialTaskQueue {
   ): CancellablePromiseLike<any> {
     if (this._isClosed)
       throw new Error(`${this.name} has been previously closed`);
-    var taskEntry: TaskEntry = {
+    const taskEntry: TaskEntry = {
       callback: task,
       args:
         options && options.args
@@ -254,7 +260,7 @@ export class SequentialTaskQueue {
    * @param {Function} handler - Event handler. When invoking the handler, the queue will set itself as the `this` argument of the call.
    */
   once(evt: string, handler: Function) {
-    var cb = (...args: any[]) => {
+    const cb = (...args: any[]) => {
       this.removeListener(evt, cb);
       handler.apply(this, args);
     };
@@ -266,7 +272,7 @@ export class SequentialTaskQueue {
    * @param {string} evt - Event name
    * @param {Function} handler - Event handler to be removed
    */
-  removeListener(evt: string, handler: Function) {
+  removeListener(evt: string, handler: Function): void {
     if (this.events) {
       const list = this.events[evt];
       if (list) {
@@ -279,9 +285,15 @@ export class SequentialTaskQueue {
     }
   }
 
-  /** @see {@link SequentialTaskQueue.removeListener} */
-  off(evt: string, handler: Function) {
-    return this.removeListener(evt, handler);
+  /**
+   *
+   *
+   * @param {string} evt
+   * @param {Function} handler
+   * @memberof SequentialTaskQueue
+   */
+  off(evt: string, handler: Function): void {
+    this.removeListener(evt, handler);
   }
 
   protected emit(evt: string, ...args: any[]) {
@@ -385,12 +397,6 @@ interface TaskEntry {
   result?: any;
   resolve?: (value: any | PromiseLike<any>) => void;
   reject?: (reason?: any) => void;
-}
-
-function noop() {}
-
-function isPromise(obj: any): obj is PromiseLike<any> {
-  return obj && typeof obj.then === 'function';
 }
 
 SequentialTaskQueue.defaultScheduler = {

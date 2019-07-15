@@ -209,8 +209,12 @@ export default class OfflineLink extends ApolloLink {
   }
 
   /**
+   *
    * Obtains the queue of mutations that must be sent to the server.
    * These are kept in a Map to preserve the order of the mutations in the queue.
+   *
+   * @return {Promise<Map<unknown, unknown>>}
+   * @memberof OfflineLink
    */
   public getQueue(): Promise<Map<unknown, unknown>> {
     return this.storage
@@ -256,7 +260,11 @@ export default class OfflineLink extends ApolloLink {
   }
 
   /**
+   *
    * Updates a SyncStatus object in the Apollo Cache so that the queue status can be obtained and dynamically updated.
+   *
+   * @param {boolean} inflight
+   * @memberof OfflineLink
    */
   public updateStatus(inflight: boolean) {
     this.client.writeQuery({
@@ -271,6 +279,14 @@ export default class OfflineLink extends ApolloLink {
 
   /**
    * Add a mutation attempt to the queue so that it can be retried at a later point in time.
+   *
+   * @param {{
+   *     mutation: string,
+   *     variables: any,
+   *     optimisticResponse: any
+   *   }} item
+   * @return {string}
+   * @memberof OfflineLink
    */
   add(item: {
     mutation: string;
@@ -282,7 +298,7 @@ export default class OfflineLink extends ApolloLink {
     this.queue.set(attemptId, item);
     if (files.size) {
       // We give the mutation attempt a random id so that it is easy to remove when needed (in sync loop)
-      new Promise((resolve, _reject) => {
+      new Promise(() => {
         new Promise<FilesSaved[]>(resolveFiles => {
           const promises: Promise<any>[] = [];
           files.forEach(async (value, key) => {
@@ -314,7 +330,11 @@ export default class OfflineLink extends ApolloLink {
   }
 
   /**
+   *
    * Remove a mutation attempt from the queue.
+   * @param {string} attemptId
+   * @return {Promise<void>}
+   * @memberof OfflineLink
    */
   async remove(attemptId: string) {
     if (this.queueFiles.has(attemptId)) {
@@ -427,7 +447,12 @@ export default class OfflineLink extends ApolloLink {
   }
 
   /**
+   *
    * Configure the link to use Apollo Client and immediately try to sync the queue (if there's anything there).
+   *
+   * @param {ApolloClient<NormalizedCacheObject>} client
+   * @return {Promise<void>}
+   * @memberof OfflineLink
    */
   public async setup(client: ApolloClient<NormalizedCacheObject>) {
     this.client = client;

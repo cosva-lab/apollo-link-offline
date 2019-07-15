@@ -40,12 +40,11 @@ export const extractFiles = (
     else if (value && value.constructor === Object) {
       clone = {};
       for (const i in value) {
-        const result = extractFiles(
-          (value as any)[i],
-          `${prefix}${i}`,
-        );
-        result.files.forEach((a, b) => addFile(b, a));
-        clone[i] = result.clone;
+        if (value) {
+          const result = extractFiles(value[i], `${prefix}${i}`);
+          result.files.forEach((a, b) => addFile(b, a));
+          clone[i] = result.clone;
+        }
       }
     } else clone = value;
   }
