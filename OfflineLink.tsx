@@ -18,6 +18,7 @@ import {
   b64toBlob,
   hasPersistDirective,
 } from './utils';
+import { PersistentStorage, FilesSaved, Props } from './Props';
 
 const syncStatusQuery = gql`
   query syncStatus {
@@ -25,27 +26,6 @@ const syncStatusQuery = gql`
     inflight
   }
 `;
-
-interface PersistentStorage<T> {
-  getItem: (key: string) => Promise<T> | T;
-  setItem: (key: string, data: T) => Promise<void> | void;
-  removeItem: (key: string) => Promise<void> | void;
-}
-
-interface FilesSaved {
-  key: string;
-  result: string;
-  name: string;
-}
-
-interface Props {
-  storage: PersistentStorage<any>;
-  retryInterval?: 5000;
-  sequential?: false;
-  storeKey?: '@offlineLink';
-  retryOnServerError?: false;
-  actions?: any;
-}
 
 const OFFLINE_LINK_FILES = '@offlineLink/files';
 
@@ -132,7 +112,7 @@ export default class OfflineLink extends ApolloLink {
     }
 
     return new Observable(observer => {
-      let attemptId: string;
+      let attemptId: Promise<string>;
       if (!queueItemKey) {
         attemptId = this.add({
           mutation: printer(query),
@@ -145,8 +125,10 @@ export default class OfflineLink extends ApolloLink {
         next: result => {
           // Mutation was successful so we remove it from the queue since we don't need to retry it later
           if (!queueItemKey) {
-            this.remove(attemptId).then(() => {
-              this.delayedSync();
+            attemptId.then(res => {
+              this.remove(res).then(() => {
+                this.delayedSync();
+              });
             });
           } else {
             this.remove(queueItemKey).then(() => {
@@ -167,7 +149,9 @@ export default class OfflineLink extends ApolloLink {
           switch (err.statusCode) {
             case 400:
               if (!queueItemKey) {
-                this.remove(attemptId);
+                attemptId.then(res => {
+                  this.remove(res);
+                });
               } else {
                 this.remove(queueItemKey).then(() => {
                   this.delayedSync();
@@ -178,11 +162,13 @@ export default class OfflineLink extends ApolloLink {
             default:
               // Mutation failed so we try again after a certain amount of time.
               if (!queueItemKey) {
-                Promise.all([
-                  this.saveQueueFiles(),
-                  this.saveQueue(),
-                ]).then(() => {
-                  this.delayedSync();
+                attemptId.then(() => {
+                  Promise.all([
+                    this.saveQueueFiles(),
+                    this.saveQueue(),
+                  ]).then(() => {
+                    this.delayedSync();
+                  });
                 });
               } else {
                 this.delayedSync();
@@ -288,44 +274,43 @@ export default class OfflineLink extends ApolloLink {
    * @return {string}
    * @memberof OfflineLink
    */
-  add(item: {
+  async add(item: {
     mutation: string;
     variables: any;
     optimisticResponse: any;
-  }): string {
+  }): Promise<string> {
     const attemptId = uuidv4();
-    const { files } = extractFiles(item);
-    this.queue.set(attemptId, item);
+    const { files, clone } = extractFiles(item);
     if (files.size) {
       // We give the mutation attempt a random id so that it is easy to remove when needed (in sync loop)
-      new Promise(() => {
-        new Promise<FilesSaved[]>(resolveFiles => {
-          const promises: Promise<any>[] = [];
-          files.forEach(async (value, key) => {
-            promises.push(
-              new Promise(r => {
-                const fr = new FileReader();
-                fr.onload = () => {
-                  return r({
-                    key,
-                    name: value.name,
-                    result: fr.result,
-                  });
-                }; // CHANGE to whatever function you want which would eventually call resolve
-                fr.readAsDataURL(value);
-              }),
-            );
-          });
-          Promise.all(promises).then(res => {
-            resolveFiles(res);
-          });
-        }).then(res => {
-          set(item, 'files', attemptId);
-          this.queueFiles.set(attemptId, res);
+      await new Promise<FilesSaved[]>(resolveFiles => {
+        const promises: Promise<any>[] = [];
+        files.forEach(async (value, key) => {
+          promises.push(
+            new Promise(r => {
+              const fr = new FileReader();
+              fr.onload = () => {
+                return r({
+                  key,
+                  name: value.name,
+                  result: fr.result,
+                });
+              }; // CHANGE to whatever function you want which would eventually call resolve
+              fr.readAsDataURL(value);
+            }),
+          );
         });
+        Promise.all(promises).then(res => {
+          resolveFiles(res);
+        });
+      }).then(res => {
+        set(clone, 'files', attemptId);
+        this.queue.set(attemptId, clone);
+        this.queueFiles.set(attemptId, res);
       });
+    } else {
+      this.queue.set(attemptId, item);
     }
-    this.queue.set(attemptId, item);
     return attemptId;
   }
 
@@ -407,7 +392,6 @@ export default class OfflineLink extends ApolloLink {
               });
             }
           }
-          unset(attempt, 'files');
         }
         this.queueMutate.push(() => {
           return new Promise((resolve, reject) => {
@@ -416,16 +400,17 @@ export default class OfflineLink extends ApolloLink {
                 ...attempt,
                 context: { queueItemKey: attemptId },
                 mutation: gql(attempt.mutation),
+                errorPolicy: 'all',
               })
               // Mutation was successfully executed so we remove it from the queue
-              .then(resolve)
+              .then(res => {
+                unset(attempt, 'files');
+                resolve(res);
+              })
               .catch(err => {
                 // There are GraphQL errors, which means the server processed the request so we can remove the mutation from the queue
                 this.queueMutate.cancel();
-                if (
-                  (err.networkError || {}).response ||
-                  (err.networkError || {}).errors
-                ) {
+                if (err.networkError.result.errors.length) {
                   if (keyFiles) this.queueFiles.delete(keyFiles);
                   this.queue.delete(attemptId);
                 }
