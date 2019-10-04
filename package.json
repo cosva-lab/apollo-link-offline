@@ -1,0 +1,60 @@
+{
+  "name": "@cosva-lab/apollo-link-offline",
+  "version": "1.0.0",
+  "description": "apollo-link-offline.",
+  "author": "andres112013",
+  "license": "MIT",
+  "repository": "https://github.com/cosva-lab/apollo-link-offline.git",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=8",
+    "npm": ">=5"
+  },
+  "scripts": {
+    "clean": "rm -Rf ./lib/* ./build/* ./meta/bundlesize/* ./meta/coverage/* ./.rpt2_cache",
+    "prebuild": "npm run clean",
+    "build": "npm run build:cjs && npm run build:esm && npm run build:es",
+    "build:cjs": "cross-env NODE_ENV=production BABEL_ENV=cjs babel --config-file ./babel.config.js --extensions .ts,.tsx ./src --out-dir ./build --ignore \"**/*.test.js\" && npx tsc --outDir ./build --emitDeclarationOnly",
+    "build:esm": "cross-env NODE_ENV=production BABEL_ENV=es babel --config-file ./babel.config.js --extensions .ts,.tsx ./src --out-dir ./build/esm --ignore \"**/*.test.js\"",
+    "build:es": "cross-env NODE_ENV=production BABEL_ENV=es babel --config-file ./babel.config.js --extensions .ts,.tsx ./src --out-dir ./build/es --ignore \"**/*.test.js\"",
+    "build:umd": "cross-env BABEL_ENV=production-umd rollup -c",
+    "postbuild": "npm run build:copy-files",
+    "build:copy-files": "node ./scripts/copy-files.js",
+    "start": "rollup -c -w",
+    "release": "npm run build && npm publish build",
+    "predeploy": "cd example && npm install && npm run build",
+    "deploy": "gh-pages -d example/build"
+  },
+  "dependencies": {
+    "@types/lodash": "^4.14.140"
+  },
+  "peerDependencies": {},
+  "devDependencies": {
+    "@babel/cli": "^7.6.2",
+    "@babel/core": "^7.6.2",
+    "@babel/plugin-proposal-class-properties": "^7.5.5",
+    "@babel/plugin-proposal-decorators": "^7.6.0",
+    "@babel/plugin-syntax-dynamic-import": "^7.2.0",
+    "@babel/plugin-transform-runtime": "^7.6.2",
+    "@babel/preset-env": "^7.6.2",
+    "@babel/preset-typescript": "^7.6.0",
+    "@types/jest": "^23.1.5",
+    "@types/validator": "^10.11.3",
+    "babel-core": "^6.26.3",
+    "babel-plugin-istanbul": "^5.2.0",
+    "babel-plugin-module-resolver": "^3.2.0",
+    "babel-plugin-transform-dev-warning": "^0.1.1",
+    "babel-runtime": "^6.26.0",
+    "cross-env": "^5.1.4",
+    "gh-pages": "^1.2.0",
+    "rollup": "^0.62.0",
+    "rollup-plugin-babel": "^3.0.7",
+    "rollup-plugin-commonjs": "^9.3.4",
+    "rollup-plugin-node-resolve": "^3.4.0",
+    "rollup-plugin-peer-deps-external": "^2.2.0",
+    "typescript": "^3.6.3"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
