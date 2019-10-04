@@ -18,7 +18,12 @@ import {
   b64toBlob,
   hasPersistDirective,
 } from './utils';
-import { PersistentStorage, FilesSaved, Props } from './Props';
+import {
+  PersistentStorage,
+  FilesSaved,
+  Props,
+  OfflineAction,
+} from './Props';
 
 const syncStatusQuery = gql`
   query syncStatus {
@@ -36,7 +41,7 @@ export default class OfflineLink extends ApolloLink {
 
   private sequential: boolean;
 
-  private actions: any;
+  private actions: { [key: string]: OfflineAction };
 
   private retryOnServerError: boolean;
 
@@ -139,7 +144,7 @@ export default class OfflineLink extends ApolloLink {
             if (onSync && queueItemKey) {
               const action = this.actions[onSync];
               if (typeof action === 'function') {
-                action(operation.getContext(), result);
+                action(operation.getContext() as any, result);
               }
             }
           }
