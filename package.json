@@ -4,6 +4,7 @@
   "description": "Offline plug-in for Apollo",
   "author": "Eduard Castellanos <eduard@cosva.app>",
   "contributors": [
+    "Miguel Carvajal <omar@carvajalonline.com>",
     "Eduard Castellanos <eduard@cosva.app>"
   ],
   "license": "MIT",
