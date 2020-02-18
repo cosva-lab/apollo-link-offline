@@ -20,6 +20,9 @@
     "url": "https://github.com/cosva-lab/apollo-link-offline/issues"
   },
   "homepage": "https://github.com/cosva-lab/apollo-link-offline#readme",
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "clean": "rm -Rf ./lib/* ./build/* ./meta/bundlesize/* ./meta/coverage/* ./.rpt2_cache",
     "prebuild": "npm run clean",
