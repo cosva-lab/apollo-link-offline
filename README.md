@@ -1,7 +1,4 @@
----
-title: @cosva-lab/apollo-link-offline
-description: Get GraphQL results over a network using HTTP fetch.
----
+# @cosva-lab/apollo-link-offline
 
 An Apollo Link to queue mutations when offline or network errors exist.
 
