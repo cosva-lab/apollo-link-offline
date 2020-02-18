@@ -1,60 +1,84 @@
 {
   "name": "@cosva-lab/apollo-link-offline",
-  "version": "1.0.0",
-  "description": "apollo-link-offline.",
-  "author": "andres112013",
+  "version": "1.0.1",
+  "description": "Offline plug-in for Apollo",
+  "author": "Eduard Castellanos <eduard@cosva.app>",
+  "contributors": [
+    "Eduard Castellanos <eduard@cosva.app>"
+  ],
   "license": "MIT",
-  "repository": "https://github.com/cosva-lab/apollo-link-offline.git",
+  "main": "./lib/index.js",
+  "module": "./lib/bundle.esm.js",
+  "typings": "./lib/index.d.ts",
   "sideEffects": false,
-  "engines": {
-    "node": ">=8",
-    "npm": ">=5"
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cosva-lab/apollo-link-offline.git"
   },
+  "bugs": {
+    "url": "https://github.com/cosva-lab/apollo-link-offline/issues"
+  },
+  "homepage": "https://github.com/cosva-lab/apollo-link-offline#readme",
   "scripts": {
     "clean": "rm -Rf ./lib/* ./build/* ./meta/bundlesize/* ./meta/coverage/* ./.rpt2_cache",
     "prebuild": "npm run clean",
-    "build": "npm run build:cjs && npm run build:esm && npm run build:es",
-    "build:cjs": "cross-env NODE_ENV=production BABEL_ENV=cjs babel --config-file ./babel.config.js --extensions .ts,.tsx ./src --out-dir ./build --ignore \"**/*.test.js\" && npx tsc --outDir ./build --emitDeclarationOnly",
-    "build:esm": "cross-env NODE_ENV=production BABEL_ENV=es babel --config-file ./babel.config.js --extensions .ts,.tsx ./src --out-dir ./build/esm --ignore \"**/*.test.js\"",
-    "build:es": "cross-env NODE_ENV=production BABEL_ENV=es babel --config-file ./babel.config.js --extensions .ts,.tsx ./src --out-dir ./build/es --ignore \"**/*.test.js\"",
-    "build:umd": "cross-env BABEL_ENV=production-umd rollup -c",
+    "build": "tsc && rollup -c",
     "postbuild": "npm run build:copy-files",
-    "build:copy-files": "node ./scripts/copy-files.js",
-    "start": "rollup -c -w",
+    "build:copy-files": "node ./scripts/copy-files.js --inspect",
+    "start": "npx tsc -w --outDir ./example/src/@cosva-lab/form-builder",
     "release": "npm run build && npm publish build",
     "predeploy": "cd example && npm install && npm run build",
-    "deploy": "gh-pages -d example/build"
+    "deploy": "gh-pages -d example/build",
+    "watch": "tsc -w -p . & rollup -c -w"
   },
   "dependencies": {
-    "@types/lodash": "^4.14.140"
+    "apollo-cache-inmemory": "^1.6.5",
+    "apollo-client": "^2.6.8",
+    "apollo-link": "^1.2.13",
+    "graphql": "^14.6.0",
+    "graphql-tag": "^2.10.3",
+    "lodash": "^4.17.15",
+    "tslib": "^1.9.3",
+    "uuid": "^3.4.0"
   },
-  "peerDependencies": {},
+  "peerDependencies": {
+    "graphql": "^0.11.0 || ^0.12.0 || ^0.13.0 || ^14.0.0"
+  },
   "devDependencies": {
-    "@babel/cli": "^7.6.2",
-    "@babel/core": "^7.6.2",
-    "@babel/plugin-proposal-class-properties": "^7.5.5",
-    "@babel/plugin-proposal-decorators": "^7.6.0",
-    "@babel/plugin-syntax-dynamic-import": "^7.2.0",
-    "@babel/plugin-transform-runtime": "^7.6.2",
-    "@babel/preset-env": "^7.6.2",
-    "@babel/preset-typescript": "^7.6.0",
-    "@types/jest": "^23.1.5",
-    "@types/validator": "^10.11.3",
-    "babel-core": "^6.26.3",
-    "babel-plugin-istanbul": "^5.2.0",
-    "babel-plugin-module-resolver": "^3.2.0",
-    "babel-plugin-transform-dev-warning": "^0.1.1",
-    "babel-runtime": "^6.26.0",
-    "cross-env": "^5.1.4",
-    "gh-pages": "^1.2.0",
-    "rollup": "^0.62.0",
-    "rollup-plugin-babel": "^3.0.7",
-    "rollup-plugin-commonjs": "^9.3.4",
-    "rollup-plugin-node-resolve": "^3.4.0",
-    "rollup-plugin-peer-deps-external": "^2.2.0",
-    "typescript": "^3.6.3"
+    "@types/graphql": "14.2.3",
+    "@types/jest": "24.9.0",
+    "@types/lodash": "^4.14.149",
+    "@types/uuid": "^3.4.7",
+    "apollo-fetch": "0.7.0",
+    "apollo-link-http-common": "^0.2.15",
+    "fetch-mock": "6.5.2",
+    "jest": "24.9.0",
+    "object-to-querystring": "1.0.8",
+    "rimraf": "2.7.1",
+    "rollup": "1.29.1",
+    "rollup-plugin-invariant": "^0.5.6",
+    "rollup-plugin-node-resolve": "^5.2.0",
+    "rollup-plugin-sourcemaps": "^0.5.0",
+    "rollup-plugin-typescript2": "^0.26.0",
+    "ts-jest": "22.4.6",
+    "tslint": "5.20.1",
+    "typescript": "3.0.3"
   },
-  "publishConfig": {
-    "access": "public"
+  "jest": {
+    "transform": {
+      ".(ts|tsx)": "ts-jest"
+    },
+    "testRegex": "(/__tests__/.*|\\.(test|spec))\\.(ts|tsx|js)$",
+    "moduleFileExtensions": [
+      "ts",
+      "tsx",
+      "js",
+      "json"
+    ],
+    "testPathIgnorePatterns": [
+      "/node_modules/",
+      "sharedHttpTests.ts"
+    ],
+    "testURL": "http://localhost"
   }
 }
