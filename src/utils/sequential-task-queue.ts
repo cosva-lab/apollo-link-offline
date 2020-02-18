@@ -98,7 +98,7 @@ export const sequentialTaskQueueEvents = {
 /**
  * Promise interface  with the ability to cancel.
  */
-export interface CancellablePromiseLike<T> extends PromiseLike<T> {
+export interface CancellablePromiseLike<T> extends Promise<T> {
   /**
    * Cancels (and consequently, rejects) the task associated with the Promise.
    * @param reason - Reason of the cancellation. This value will be passed when rejecting this Promise.
@@ -106,7 +106,7 @@ export interface CancellablePromiseLike<T> extends PromiseLike<T> {
   cancel(reason?: any): void;
 }
 
-function isPromise(obj: any): obj is PromiseLike<any> {
+function isPromise(obj: any): obj is Promise<any> {
   return obj && typeof obj.then === 'function';
 }
 
@@ -201,7 +201,7 @@ export class SequentialTaskQueue {
    * Cancels the currently running task (if any), and clears the queue.
    * @return {Promise} A Promise that is fulfilled when the queue is empty and the current task has been cancelled.
    */
-  cancel(): PromiseLike<any> {
+  cancel(): Promise<any> {
     if (this.currentTask)
       this.cancelTask(
         this.currentTask,
@@ -224,7 +224,7 @@ export class SequentialTaskQueue {
    * @param {boolean} cancel - Indicates that the queue should also be cancelled.
    * @return {Promise} A Promise that is fulfilled when the queue has finished executing remaining tasks.
    */
-  close(cancel?: boolean): PromiseLike<any> {
+  close(cancel?: boolean): Promise<any> {
     if (!this._isClosed) {
       this._isClosed = true;
       if (cancel) return this.cancel();
@@ -236,7 +236,7 @@ export class SequentialTaskQueue {
    * Returns a promise that is fulfilled when the queue is empty.
    * @return {Promise}
    */
-  wait(): PromiseLike<any> {
+  wait(): Promise<any> {
     if (!this.currentTask && this.queue.length === 0)
       return Promise.resolve();
     return new Promise(resolve => {
@@ -330,19 +330,18 @@ export class SequentialTaskQueue {
           }
           const res = task.callback.apply(undefined, task.args);
           if (res && isPromise(res)) {
-            res.then(
-              result => {
+            res
+              .then(result => {
                 if (task) {
                   task.result = result;
                   this.doneTask(task);
                 }
-              },
-              err => {
+              })
+              .catch(err => {
                 if (task) {
                   this.doneTask(task, err);
                 }
-              },
-            );
+              });
           } else {
             task.result = res;
             this.doneTask(task);
@@ -395,7 +394,7 @@ interface TaskEntry {
   timeoutHandle?: any;
   cancellationToken: CancellationToken;
   result?: any;
-  resolve?: (value: any | PromiseLike<any>) => void;
+  resolve?: (value: any | Promise<any>) => void;
   reject?: (reason?: any) => void;
 }
 

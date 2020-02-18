@@ -1,9 +1,9 @@
-export const extractFiles = (
-  value: File | Blob | FileList | any,
+export const extractFiles = <B extends Record<string, any>>(
+  value: File | Blob | FileList | B,
   path: string = '',
 ): {
-  clone: any;
-  files: Map<any, any>;
+  clone: B;
+  files: Map<string, File>;
 } => {
   let clone: any;
   const files = new Map();
@@ -37,10 +37,15 @@ export const extractFiles = (
         result.files.forEach((a, b) => addFile(b, a));
         return result.clone;
       });
-    else if (value && value.constructor === Object) {
+    else if (
+      typeof value === 'object' &&
+      !(value instanceof File) &&
+      !(value instanceof Blob) &&
+      !(value instanceof FileList)
+    ) {
       clone = {};
       for (const i in value) {
-        if (value) {
+        if (value.hasOwnProperty(i)) {
           const result = extractFiles(value[i], `${prefix}${i}`);
           result.files.forEach((a, b) => addFile(b, a));
           clone[i] = result.clone;

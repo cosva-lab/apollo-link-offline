@@ -7,11 +7,12 @@ import {
 import uuidv4 from 'uuid/v4';
 import { print as printer } from 'graphql/language/printer';
 import gql from 'graphql-tag';
-import ApolloClient from 'apollo-client';
+import ApolloClient, { ApolloError } from 'apollo-client';
 import { NormalizedCacheObject } from 'apollo-cache-inmemory';
 import debounce from 'lodash/debounce';
 import unset from 'lodash/unset';
 import set from 'lodash/set';
+import { ServerError } from 'apollo-link-http-common';
 import {
   SequentialTaskQueue,
   extractFiles,
@@ -23,7 +24,7 @@ import {
   FilesSaved,
   Props,
   OfflineAction,
-} from './Props';
+} from './types';
 
 const syncStatusQuery = gql`
   query syncStatus {
@@ -34,7 +35,14 @@ const syncStatusQuery = gql`
 
 const OFFLINE_LINK_FILES = '@offlineLink/files';
 
-export default class OfflineLink extends ApolloLink {
+interface Attempt {
+  mutation: string;
+  variables: any;
+  optimisticResponse: any;
+  files?: string;
+}
+
+export class OfflineLink extends ApolloLink {
   private storage: PersistentStorage<any>;
 
   private storeKey: string;
@@ -45,7 +53,7 @@ export default class OfflineLink extends ApolloLink {
 
   private retryOnServerError: boolean;
 
-  private queue = new Map();
+  private queue = new Map<string, Attempt>();
 
   private queueFiles: Map<string, FilesSaved[]> = new Map();
 
@@ -58,10 +66,10 @@ export default class OfflineLink extends ApolloLink {
 
   /**
    * storage
-   * Provider that will persist the mutation queue. This can be AsyncStorage, window.localStorage, et.
+   * Provider that will persist the mutation queue. This can be AsyncStorage, window.localStorage, etc.
    *
    * retryInterval
-   * Milliseconds between attempts to retry failed mutations. Defaults to 30,000 milliseconds.
+   * Milliseconds between attempts to retry failed mutations. Defaults to 5000 seconds.
    *
    * sequential
    * Indicates if the attempts should be retried in order. Defaults to false which retries all failed mutations in parallel.
@@ -107,9 +115,8 @@ export default class OfflineLink extends ApolloLink {
     const result = hasPersistDirective(query);
     const { onSync } = result;
 
-    if (result.hasDirective && result.newDoc) {
+    if (result.hasDirective && result.newDoc)
       operation.query = result.newDoc;
-    }
 
     if (!optimisticResponse) {
       // If the mutation does not have an optimistic response then we don't defer it
@@ -117,67 +124,55 @@ export default class OfflineLink extends ApolloLink {
     }
 
     return new Observable(observer => {
-      let attemptId: Promise<string>;
+      let attemptId: Promise<string> | undefined = undefined;
       if (!queueItemKey) {
-        attemptId = this.add({
+        attemptId = this.addAttempt({
           mutation: printer(query),
           variables,
           optimisticResponse,
         });
       }
+      const catchError = (e: any) => console.log(e);
+      const removeAttempt = (id: string) => {
+        this.removeAttempt(id)
+          .then(() => {
+            this.delayedSync();
+          })
+          .catch(catchError);
+      };
+      const getAttemptAndRemove = () => {
+        attemptId && attemptId.then(removeAttempt).catch(catchError);
+      };
 
       const subscription = forward(operation).subscribe({
         next: result => {
           // Mutation was successful so we remove it from the queue since we don't need to retry it later
-          if (!queueItemKey) {
-            attemptId.then(res => {
-              this.remove(res).then(() => {
-                this.delayedSync();
-              });
-            });
-          } else {
-            this.remove(queueItemKey).then(() => {
-              this.delayedSync();
-            });
-          }
+          if (!queueItemKey) getAttemptAndRemove();
+          else removeAttempt(queueItemKey);
           if (!(result.errors || []).length) {
             if (onSync && queueItemKey) {
               const action = this.actions[onSync];
-              if (typeof action === 'function') {
+              if (typeof action === 'function')
                 action(operation.getContext() as any, result);
-              }
             }
           }
           observer.next(result);
         },
-        error: async err => {
+        error: err => {
           switch (err.statusCode) {
             case 400:
-              if (!queueItemKey) {
-                attemptId.then(res => {
-                  this.remove(res);
-                });
-              } else {
-                this.remove(queueItemKey).then(() => {
-                  this.delayedSync();
-                });
-              }
+              if (!queueItemKey) getAttemptAndRemove();
+              else removeAttempt(queueItemKey);
               observer.error(err);
               break;
             default:
               // Mutation failed so we try again after a certain amount of time.
-              if (!queueItemKey) {
-                attemptId.then(() => {
-                  Promise.all([
-                    this.saveQueueFiles(),
-                    this.saveQueue(),
-                  ]).then(() => {
-                    this.delayedSync();
-                  });
-                });
-              } else {
-                this.delayedSync();
-              }
+              if (!queueItemKey)
+                attemptId &&
+                  attemptId
+                    .then(() => this.saveQueueAndDelayedSync())
+                    .catch(catchError);
+              else this.delayedSync();
               // Resolve the mutation with the optimistic response so the UI can be updated
               observer.next({
                 data: optimisticResponse,
@@ -204,10 +199,10 @@ export default class OfflineLink extends ApolloLink {
    * Obtains the queue of mutations that must be sent to the server.
    * These are kept in a Map to preserve the order of the mutations in the queue.
    *
-   * @return {Promise<Map<unknown, unknown>>}
+   * @return {Promise<Map<string, Attempt>>}
    * @memberof OfflineLink
    */
-  public getQueue(): Promise<Map<unknown, unknown>> {
+  public getQueue(): Promise<Map<string, Attempt>> {
     return this.storage
       .getItem(this.storeKey)
       .then(
@@ -240,6 +235,15 @@ export default class OfflineLink extends ApolloLink {
       OFFLINE_LINK_FILES,
       JSON.stringify(Array.from(this.queueFiles)),
     );
+  }
+
+  saveQueueAndDelayedSync() {
+    return Promise.all([
+      this.saveQueueFiles(),
+      this.saveQueue(),
+    ]).then(() => {
+      this.delayedSync();
+    });
   }
 
   public getQueueFiles(): Promise<Map<string, FilesSaved[]>> {
@@ -275,27 +279,23 @@ export default class OfflineLink extends ApolloLink {
    *     mutation: string,
    *     variables: any,
    *     optimisticResponse: any
-   *   }} item
+   *   }} attempt
    * @return {string}
    * @memberof OfflineLink
    */
-  async add(item: {
-    mutation: string;
-    variables: any;
-    optimisticResponse: any;
-  }): Promise<string> {
+  async addAttempt(attempt: Attempt): Promise<string> {
     const attemptId = uuidv4();
-    const { files, clone } = extractFiles(item);
+    const { files, clone } = extractFiles(attempt);
     if (files.size) {
       // We give the mutation attempt a random id so that it is easy to remove when needed (in sync loop)
-      await new Promise<FilesSaved[]>(resolveFiles => {
+      return new Promise<FilesSaved[]>(resolve => {
         const promises: Promise<any>[] = [];
         files.forEach(async (value, key) => {
           promises.push(
-            new Promise(r => {
+            new Promise(resolve => {
               const fr = new FileReader();
               fr.onload = () => {
-                return r({
+                return resolve({
                   key,
                   name: value.name,
                   result: fr.result,
@@ -305,17 +305,23 @@ export default class OfflineLink extends ApolloLink {
             }),
           );
         });
-        Promise.all(promises).then(res => {
-          resolveFiles(res);
+        Promise.all(promises)
+          .then(res => {
+            resolve(res);
+          })
+          .catch(() => {});
+      })
+        .then(res => {
+          set(clone, 'files', attemptId);
+          this.queue.set(attemptId, clone);
+          this.queueFiles.set(attemptId, res);
+          return attemptId;
+        })
+        .catch(e => {
+          throw e;
         });
-      }).then(res => {
-        set(clone, 'files', attemptId);
-        this.queue.set(attemptId, clone);
-        this.queueFiles.set(attemptId, res);
-      });
-    } else {
-      this.queue.set(attemptId, item);
     }
+    this.queue.set(attemptId, attempt);
     return attemptId;
   }
 
@@ -326,7 +332,7 @@ export default class OfflineLink extends ApolloLink {
    * @return {Promise<void>}
    * @memberof OfflineLink
    */
-  async remove(attemptId: string) {
+  async removeAttempt(attemptId: string) {
     if (this.queueFiles.has(attemptId)) {
       this.queueFiles.delete(attemptId);
       await this.saveQueueFiles();
@@ -348,15 +354,14 @@ export default class OfflineLink extends ApolloLink {
     this.updateStatus(true);
 
     // Retry the mutations in the queue, the successful ones are removed from the queue
+    const attempts = Array.from(this.queue);
     if (this.sequential) {
       // Retry the mutations in the order in which they were originally executed
-      const attempts = Array.from(this.queue);
-
-      attempts.every(([attemptId, attempt]: any) => {
-        // eslint-disable-next-line no-await-in-loop
+      attempts.every(([attemptId, attempt]) => {
         this.client
-          .mutate({
-            ...attempt,
+          .mutate<Attempt, any>({
+            mutation: gql(attempt.mutation),
+            variables: attempt.variables,
             optimisticResponse: undefined,
           })
           .then(() => {
@@ -384,7 +389,7 @@ export default class OfflineLink extends ApolloLink {
         return true;
       });
     } else {
-      Array.from(this.queue).forEach(async ([attemptId, attempt]) => {
+      attempts.forEach(async ([attemptId, attempt]) => {
         const keyFiles = attempt.files;
         if (keyFiles) {
           const { files } = extractFiles(attempt);
@@ -400,11 +405,17 @@ export default class OfflineLink extends ApolloLink {
         }
         this.queueMutate.push(() => {
           return new Promise((resolve, reject) => {
+            const {
+              variables,
+              optimisticResponse,
+              mutation,
+            } = attempt;
             this.client
               .mutate({
-                ...attempt,
+                variables,
+                optimisticResponse,
                 context: { queueItemKey: attemptId },
-                mutation: gql(attempt.mutation),
+                mutation: gql(mutation),
                 errorPolicy: 'all',
               })
               // Mutation was successfully executed so we remove it from the queue
@@ -412,27 +423,39 @@ export default class OfflineLink extends ApolloLink {
                 unset(attempt, 'files');
                 resolve(res);
               })
-              .catch(err => {
+              .catch(async err => {
                 // There are GraphQL errors, which means the server processed the request so we can remove the mutation from the queue
                 this.queueMutate.cancel();
-                if (err.networkError.result.errors.length) {
-                  if (keyFiles) this.queueFiles.delete(keyFiles);
-                  this.queue.delete(attemptId);
+                if (err instanceof ApolloError && err.networkError) {
+                  const { result } = err.networkError as ServerError;
+                  if (
+                    result &&
+                    result.errors &&
+                    result.errors.length
+                  ) {
+                    if (keyFiles) this.queueFiles.delete(keyFiles);
+                    this.queue.delete(attemptId);
+                  }
                 }
                 // Remaining mutations in the queue are persisted
-                this.saveQueue().then(() => {
-                  reject(err);
-                });
+                await this.saveQueue();
+                reject(err);
+              })
+              .catch(a => {
+                console.log(a);
               });
           });
         });
       });
-      this.queueMutate.wait().then(() => {
-        if (this.queue.size > 0) {
-          // If there are any mutations left in the queue, we retry them at a later point in time
-          this.delayedSync();
-        }
-      });
+      this.queueMutate
+        .wait()
+        .then(() => {
+          if (this.queue.size > 0) {
+            // If there are any mutations left in the queue, we retry them at a later point in time
+            this.delayedSync();
+          }
+        })
+        .catch(() => {});
     }
   }
 
@@ -452,3 +475,5 @@ export default class OfflineLink extends ApolloLink {
     return this.sync();
   }
 }
+
+export default OfflineLink;
