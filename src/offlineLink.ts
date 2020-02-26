@@ -283,46 +283,35 @@ export class OfflineLink extends ApolloLink {
    * @return {string}
    * @memberof OfflineLink
    */
-  async addAttempt(attempt: Attempt): Promise<string> {
+  async addAttempt(attempt: Attempt) {
+    // We give the mutation attempt a random id so that it is easy to remove when needed (in sync loop)
     const attemptId = uuidv4();
     const { files, clone } = extractFiles(attempt);
     if (files.size) {
-      // We give the mutation attempt a random id so that it is easy to remove when needed (in sync loop)
-      return new Promise<FilesSaved[]>(resolve => {
-        const promises: Promise<any>[] = [];
-        files.forEach(async (value, key) => {
-          promises.push(
-            new Promise(resolve => {
+      const filesBase64: (FilesSaved | null)[] = [];
+      for (const [key, file] of Array.from(files.entries())) {
+        const fileBase64 = await new Promise<FilesSaved | null>(
+          resolve => {
               const fr = new FileReader();
               fr.onload = () => {
-                return resolve({
+              if (typeof fr.result === 'string')
+                resolve({
                   key,
-                  name: value.name,
+                  name: file.name,
                   result: fr.result,
                 });
-              }; // CHANGE to whatever function you want which would eventually call resolve
-              fr.readAsDataURL(value);
-            }),
+              else resolve(null);
+            };
+            fr.readAsDataURL(file);
+          },
           );
-        });
-        Promise.all(promises)
-          .then(res => {
-            resolve(res);
-          })
-          .catch(() => {});
-      })
-        .then(res => {
-          set(clone, 'files', attemptId);
+        filesBase64.push(fileBase64);
+      }
           this.queue.set(attemptId, clone);
-          this.queueFiles.set(attemptId, res);
-          return attemptId;
-        })
-        .catch(e => {
-          throw e;
-        });
+      this.queueFiles.set(attemptId, filesBase64);
     }
     this.queue.set(attemptId, attempt);
-    return attemptId;
+    this.saveQueueAndDelayedSync();
   }
 
   /**
