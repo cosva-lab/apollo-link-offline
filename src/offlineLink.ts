@@ -124,14 +124,6 @@ export class OfflineLink extends ApolloLink {
     }
 
     return new Observable(observer => {
-      let attemptId: Promise<string> | undefined = undefined;
-      if (!queueItemKey) {
-        attemptId = this.addAttempt({
-          mutation: printer(query),
-          variables,
-          optimisticResponse,
-        });
-      }
       const catchError = (e: any) => console.log(e);
       const removeAttempt = (id: string) => {
         this.removeAttempt(id)
@@ -140,15 +132,11 @@ export class OfflineLink extends ApolloLink {
           })
           .catch(catchError);
       };
-      const getAttemptAndRemove = () => {
-        attemptId && attemptId.then(removeAttempt).catch(catchError);
-      };
 
       const subscription = forward(operation).subscribe({
         next: result => {
           // Mutation was successful so we remove it from the queue since we don't need to retry it later
-          if (!queueItemKey) getAttemptAndRemove();
-          else removeAttempt(queueItemKey);
+          if (queueItemKey) removeAttempt(queueItemKey);
           if (!(result.errors || []).length) {
             if (onSync && queueItemKey) {
               const action = this.actions[onSync];
@@ -158,20 +146,20 @@ export class OfflineLink extends ApolloLink {
           }
           observer.next(result);
         },
-        error: err => {
+        error: async err => {
           switch (err.statusCode) {
             case 400:
-              if (!queueItemKey) getAttemptAndRemove();
-              else removeAttempt(queueItemKey);
+              if (queueItemKey) await removeAttempt(queueItemKey);
               observer.error(err);
               break;
             default:
               // Mutation failed so we try again after a certain amount of time.
               if (!queueItemKey)
-                attemptId &&
-                  attemptId
-                    .then(() => this.saveQueueAndDelayedSync())
-                    .catch(catchError);
+                this.addAttempt({
+                  mutation: printer(query),
+                  variables,
+                  optimisticResponse,
+                });
               else this.delayedSync();
               // Resolve the mutation with the optimistic response so the UI can be updated
               observer.next({
