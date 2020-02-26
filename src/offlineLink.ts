@@ -390,16 +390,16 @@ export class OfflineLink extends ApolloLink {
       });
     } else {
       attempts.forEach(async ([attemptId, attempt]) => {
-        const keyFiles = attempt.files;
-        if (keyFiles) {
+        const hasFiles = this.queueFiles.has(attemptId);
+        if (hasFiles) {
           const { files } = extractFiles(attempt);
           if (!files.size) {
-            const mapFiles = this.queueFiles.get(keyFiles);
-            if (mapFiles) {
-              mapFiles.forEach(({ key, result, name }) => {
-                b64toBlob(result, name);
+            const mapFiles = this.queueFiles.get(attemptId) || [];
+            for (const file of mapFiles) {
+              if (file) {
+                const { key, result, name } = file;
                 set(attempt, key.split('.'), b64toBlob(result, name));
-              });
+              }
             }
           }
         }
