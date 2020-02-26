@@ -55,7 +55,7 @@ export class OfflineLink extends ApolloLink {
 
   private queue = new Map<string, Attempt>();
 
-  private queueFiles: Map<string, FilesSaved[]> = new Map();
+  private queueFiles: Map<string, (FilesSaved | null)[]> = new Map();
 
   private delayedSync: ReturnType<typeof debounce>;
 
