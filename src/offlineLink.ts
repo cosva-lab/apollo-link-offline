@@ -10,7 +10,6 @@ import gql from 'graphql-tag';
 import ApolloClient, { ApolloError } from 'apollo-client';
 import { NormalizedCacheObject } from 'apollo-cache-inmemory';
 import debounce from 'lodash/debounce';
-import unset from 'lodash/unset';
 import set from 'lodash/set';
 import { ServerError } from 'apollo-link-http-common';
 import {
@@ -280,8 +279,8 @@ export class OfflineLink extends ApolloLink {
       for (const [key, file] of Array.from(files.entries())) {
         const fileBase64 = await new Promise<FilesSaved | null>(
           resolve => {
-              const fr = new FileReader();
-              fr.onload = () => {
+            const fr = new FileReader();
+            fr.onload = () => {
               if (typeof fr.result === 'string')
                 resolve({
                   key,
@@ -292,10 +291,10 @@ export class OfflineLink extends ApolloLink {
             };
             fr.readAsDataURL(file);
           },
-          );
+        );
         filesBase64.push(fileBase64);
       }
-          this.queue.set(attemptId, clone);
+      this.queue.set(attemptId, clone);
       this.queueFiles.set(attemptId, filesBase64);
     }
     this.queue.set(attemptId, attempt);
@@ -387,6 +386,7 @@ export class OfflineLink extends ApolloLink {
               optimisticResponse,
               mutation,
             } = attempt;
+
             this.client
               .mutate({
                 variables,
@@ -397,7 +397,6 @@ export class OfflineLink extends ApolloLink {
               })
               // Mutation was successfully executed so we remove it from the queue
               .then(res => {
-                unset(attempt, 'files');
                 resolve(res);
               })
               .catch(async err => {
@@ -405,17 +404,10 @@ export class OfflineLink extends ApolloLink {
                 this.queueMutate.cancel();
                 if (err instanceof ApolloError && err.networkError) {
                   const { result } = err.networkError as ServerError;
-                  if (
-                    result &&
-                    result.errors &&
-                    result.errors.length
-                  ) {
-                    if (keyFiles) this.queueFiles.delete(keyFiles);
-                    this.queue.delete(attemptId);
-                  }
+                  if (result && result.errors && result.errors.length)
+                    // Remaining mutations in the queue are persisted
+                    this.removeAttempt(attemptId);
                 }
-                // Remaining mutations in the queue are persisted
-                await this.saveQueue();
                 reject(err);
               })
               .catch(a => {
