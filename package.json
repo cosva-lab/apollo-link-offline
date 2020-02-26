@@ -1,6 +1,6 @@
 {
   "name": "@cosva-lab/apollo-link-offline",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Offline plug-in for Apollo",
   "author": "Eduard Castellanos <eduard@cosva.app>",
   "contributors": [
